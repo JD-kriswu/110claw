@@ -62,27 +62,30 @@ CREATE TABLE IF NOT EXISTS `news` (
   COMMENT='资讯文章表';
 
 -- -------------------------------------------------------------
--- learn_steps  7天学习路径步骤表
--- day: 1-7, unique
--- status: 1=active  0=disabled
+-- learn_steps  学习文章表（从飞书同步）
+-- source_url: 飞书 wiki 页面 URL（唯一索引）
+-- sort_order: 显示排序
+-- status: 1=active  0=deleted
 -- -------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `learn_steps` (
   `id`          BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
   `created_at`  DATETIME(3)      NULL,
   `updated_at`  DATETIME(3)      NULL,
   `deleted_at`  DATETIME(3)      NULL,
-  `day`         BIGINT           NOT NULL,
-  `title`       VARCHAR(200)     NOT NULL,
-  `description` VARCHAR(500)     NULL,
+  `title`       VARCHAR(500)     NOT NULL,
+  `description` VARCHAR(1000)    NULL,
   `content`     LONGTEXT         NULL,
+  `source_url`  VARCHAR(500)     NULL,
+  `sort_order`  BIGINT           NOT NULL DEFAULT 0,
   `status`      TINYINT          NOT NULL DEFAULT 1,
   PRIMARY KEY (`id`),
-  UNIQUE KEY `uni_learn_steps_day`       (`day`),
-  KEY        `idx_learn_steps_deleted_at` (`deleted_at`)
+  UNIQUE KEY `uni_learn_steps_source_url` (`source_url`),
+  KEY        `idx_learn_steps_deleted_at` (`deleted_at`),
+  KEY        `idx_learn_steps_sort_order` (`sort_order`)
 ) ENGINE=InnoDB
   DEFAULT CHARSET=utf8mb4
   COLLATE=utf8mb4_unicode_ci
-  COMMENT='7天学习步骤表';
+  COMMENT='学习文章表';
 
 -- -------------------------------------------------------------
 -- skills  技能/插件目录表

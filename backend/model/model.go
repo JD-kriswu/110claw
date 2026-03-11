@@ -16,12 +16,12 @@ type Model struct {
 
 type User struct {
 	Model
-	Username     string `gorm:"uniqueIndex;size:50;not null" json:"username"`
+	Username     string  `gorm:"uniqueIndex;size:50;not null" json:"username"`
 	Phone        *string `gorm:"uniqueIndex;size:20" json:"phone"`
-	PasswordHash string `gorm:"size:255;not null" json:"-"`
-	Avatar       string `gorm:"size:500" json:"avatar"`
-	Role         string `gorm:"size:20;default:'user'" json:"role"` // user | admin
-	Status       int8   `gorm:"default:1" json:"status"`            // 1=active, 0=disabled
+	PasswordHash string  `gorm:"size:255;not null" json:"-"`
+	Avatar       string  `gorm:"size:500" json:"avatar"`
+	Role         string  `gorm:"size:20;default:'user'" json:"role"` // user | admin
+	Status       int8    `gorm:"default:1" json:"status"`            // 1=active, 0=disabled
 }
 
 type News struct {
@@ -37,13 +37,16 @@ type News struct {
 	PublishedAt *time.Time `json:"published_at"`
 }
 
+// LearnStep represents a learning article synced from Feishu wiki.
+// Previously was a 7-day plan, now stores arbitrary articles.
 type LearnStep struct {
 	Model
-	Day         int    `gorm:"uniqueIndex;not null" json:"day"` // 1-7
-	Title       string `gorm:"size:200;not null" json:"title"`
-	Description string `gorm:"size:500" json:"description"`
+	Title       string `gorm:"size:500;not null" json:"title"`
+	Description string `gorm:"size:1000" json:"description"`
 	Content     string `gorm:"type:longtext" json:"content,omitempty"`
-	Status      int8   `gorm:"default:1" json:"status"`
+	SourceURL   string `gorm:"size:500;uniqueIndex" json:"source_url"` // Feishu wiki URL
+	SortOrder   int    `gorm:"default:0" json:"sort_order"`            // Display order
+	Status      int8   `gorm:"default:1" json:"status"`                // 1=active, 0=deleted
 }
 
 type Skill struct {

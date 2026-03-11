@@ -29,7 +29,7 @@ func Setup() *gin.Engine {
 	v1.GET("/news/:id", handler.GetNews)
 
 	v1.GET("/learn", handler.ListLearnSteps)
-	v1.GET("/learn/:day", handler.GetLearnStep)
+	v1.GET("/learn/:id", handler.GetLearnStep)
 
 	v1.GET("/skills", handler.ListSkills)
 	v1.GET("/skills/:id", handler.GetSkill)
