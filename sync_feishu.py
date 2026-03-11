@@ -73,28 +73,38 @@ def get_db_connection():
     )
 
 def upsert_article(conn, title, description, content, source_url, sort_order):
-    """插入或更新文章"""
+    """插入或更新文章，返回状态: 'inserted', 'updated', 'skipped'"""
     cursor = conn.cursor()
-    # 先检查是否存在
-    cursor.execute("SELECT id FROM learn_steps WHERE source_url = %s", (source_url,))
+    # 先检查是否存在及其当前值
+    cursor.execute(
+        "SELECT id, title, description, sort_order FROM learn_steps WHERE source_url = %s",
+        (source_url,)
+    )
     row = cursor.fetchone()
 
     if row:
-        # 更新
+        # 检查是否有变化
+        if (row['title'] == title and
+            row['description'] == description and
+            row['sort_order'] == sort_order):
+            # 无变化，跳过
+            return 'skipped'
+        # 有变化，更新
         cursor.execute("""
             UPDATE learn_steps
             SET title = %s, description = %s, content = %s, sort_order = %s, updated_at = NOW()
             WHERE source_url = %s
         """, (title, description, content, sort_order, source_url))
+        conn.commit()
+        return 'updated'
     else:
-        # 插入
+        # 插入新记录
         cursor.execute("""
             INSERT INTO learn_steps (title, description, content, source_url, sort_order, status, created_at, updated_at)
             VALUES (%s, %s, %s, %s, %s, 1, NOW(), NOW())
         """, (title, description, content, source_url, sort_order))
-
-    conn.commit()
-    return cursor.rowcount
+        conn.commit()
+        return 'inserted'
 
 def mark_deleted(conn, existing_urls):
     """标记不在列表中的文章为已删除"""
@@ -189,8 +199,10 @@ def sync_once(wiki_token):
     conn = get_db_connection()
     existing_urls = []
 
+    # 统计计数
+    stats = {'inserted': 0, 'updated': 0, 'skipped': 0, 'failed': 0}
+
     try:
-        success_count = 0
         for i, item in enumerate(items):
             title = item.get("title", "无标题")
             wiki_token_item = item.get("wiki_token")
@@ -204,21 +216,26 @@ def sync_once(wiki_token):
             sort_order = len(items) - i  # 倒序，最新的 sort_order 最大
 
             try:
-                upsert_article(conn, title, description, content, source_url, sort_order)
+                status = upsert_article(conn, title, description, content, source_url, sort_order)
                 existing_urls.append(source_url)
-                success_count += 1
-                print(f"  [{i+1}/{len(items)}] {title[:50]}")
+                stats[status] += 1
+                # 只打印新增和更新的
+                if status == 'inserted':
+                    print(f"  [新增] {title[:50]}")
+                elif status == 'updated':
+                    print(f"  [更新] {title[:50]}")
             except Exception as e:
-                print(f"  [{i+1}/{len(items)}] 失败: {title[:30]} - {e}")
+                stats['failed'] += 1
+                print(f"  [失败] {title[:30]} - {e}")
 
         # 标记删除不存在于当前列表的文章
         deleted_count = mark_deleted(conn, existing_urls)
         if deleted_count:
-            print(f"标记删除 {deleted_count} 篇已下线文章")
+            print(f"  [下线] {deleted_count} 篇文章")
 
         conn.close()
-        print(f"[{datetime.now().isoformat()}] 同步完成: {success_count} 篇文章")
-        return success_count
+        print(f"[{datetime.now().isoformat()}] 同步完成: 新增 {stats['inserted']}, 更新 {stats['updated']}, 跳过 {stats['skipped']}, 失败 {stats['failed']}")
+        return stats['inserted'] + stats['updated']
 
     except Exception as e:
         print(f"同步失败: {e}")
