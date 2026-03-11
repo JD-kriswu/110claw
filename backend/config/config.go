@@ -1,6 +1,8 @@
 package config
 
 import (
+	"time"
+
 	"github.com/spf13/viper"
 )
 
@@ -11,6 +13,12 @@ type Config struct {
 	RedisAddr     string
 	RedisPassword string
 	RedisDB       int
+
+	// News crawler settings
+	NewsCrawlEnabled  bool
+	NewsCrawlInterval time.Duration
+	NewsCrawlInitial  int
+	NewsCrawlDaily    int
 }
 
 func Load() *Config {
@@ -22,6 +30,12 @@ func Load() *Config {
 	viper.SetDefault("REDIS_ADDR", "127.0.0.1:6379")
 	viper.SetDefault("REDIS_PASSWORD", "")
 	viper.SetDefault("REDIS_DB", 0)
+
+	// News crawler defaults
+	viper.SetDefault("NEWS_CRAWL_ENABLED", true)
+	viper.SetDefault("NEWS_CRAWL_INTERVAL", "24h")
+	viper.SetDefault("NEWS_CRAWL_INITIAL", 20)
+	viper.SetDefault("NEWS_CRAWL_DAILY", 3)
 
 	// Optionally load .env file if present
 	viper.SetConfigFile(".env")
@@ -35,5 +49,10 @@ func Load() *Config {
 		RedisAddr:     viper.GetString("REDIS_ADDR"),
 		RedisPassword: viper.GetString("REDIS_PASSWORD"),
 		RedisDB:       viper.GetInt("REDIS_DB"),
+
+		NewsCrawlEnabled:  viper.GetBool("NEWS_CRAWL_ENABLED"),
+		NewsCrawlInterval: viper.GetDuration("NEWS_CRAWL_INTERVAL"),
+		NewsCrawlInitial:  viper.GetInt("NEWS_CRAWL_INITIAL"),
+		NewsCrawlDaily:    viper.GetInt("NEWS_CRAWL_DAILY"),
 	}
 }

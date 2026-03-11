@@ -4,6 +4,7 @@ import (
 	"log"
 
 	"github.com/110claw/backend/config"
+	"github.com/110claw/backend/crawler"
 	"github.com/110claw/backend/model"
 	"github.com/110claw/backend/router"
 	"github.com/110claw/backend/store"
@@ -18,6 +19,14 @@ func main() {
 	}
 
 	store.InitRedis(cfg.RedisAddr, cfg.RedisPassword, cfg.RedisDB)
+
+	// Start news crawler scheduler if enabled
+	var crawlerScheduler *crawler.Scheduler
+	if cfg.NewsCrawlEnabled {
+		crawlerScheduler = crawler.NewScheduler(cfg.NewsCrawlInitial, cfg.NewsCrawlDaily)
+		crawlerScheduler.Start()
+		defer crawlerScheduler.Stop()
+	}
 
 	r := router.Setup()
 

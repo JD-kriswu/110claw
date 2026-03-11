@@ -5,6 +5,7 @@ sync_feishu.py - 同步飞书知识库文章到 110claw 数据库
 用法:
     python3 sync_feishu.py              # 执行一次同步
     python3 sync_feishu.py --schedule   # 后台定时同步（每 6 小时）
+    python3 sync_feishu.py --content    # 强制重新抓取所有文章正文
 
 环境变量 (或从 backend/.env 读取):
     DB_DSN      - MySQL 连接串
@@ -14,6 +15,7 @@ sync_feishu.py - 同步飞书知识库文章到 110claw 数据库
 import argparse
 import json
 import os
+import re
 import signal
 import sys
 import time
@@ -60,7 +62,6 @@ def get_db_connection():
 
     dsn = os.environ.get("DB_DSN", "")
     # 解析 DSN: user:pass@tcp(host:port)/dbname?options
-    import re
     m = re.match(r"([^:]+):([^@]+)@tcp\(([^:]+):(\d+)\)/([^?]+)", dsn)
     if not m:
         print(f"无法解析 DB_DSN: {dsn}")
@@ -77,17 +78,18 @@ def upsert_article(conn, title, description, content, source_url, sort_order):
     cursor = conn.cursor()
     # 先检查是否存在及其当前值
     cursor.execute(
-        "SELECT id, title, description, sort_order FROM learn_steps WHERE source_url = %s",
+        "SELECT id, title, description, sort_order, LENGTH(content) as content_len FROM learn_steps WHERE source_url = %s",
         (source_url,)
     )
     row = cursor.fetchone()
 
     if row:
-        # 检查是否有变化
+        # 检查是否有变化（标题、描述、排序，或内容为空需要补充）
         if (row['title'] == title and
             row['description'] == description and
-            row['sort_order'] == sort_order):
-            # 无变化，跳过
+            row['sort_order'] == sort_order and
+            row['content_len'] > 0 and content):
+            # 无变化且有内容，跳过
             return 'skipped'
         # 有变化，更新
         cursor.execute("""
@@ -116,6 +118,22 @@ def mark_deleted(conn, existing_urls):
         UPDATE learn_steps SET status = 0, updated_at = NOW()
         WHERE source_url NOT IN ({placeholders}) AND status = 1
     """, tuple(existing_urls))
+    conn.commit()
+    return cursor.rowcount
+
+def get_articles_without_content(conn):
+    """获取没有正文的文章列表"""
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, source_url, title FROM learn_steps WHERE (content IS NULL OR content = '') AND status = 1")
+    return cursor.fetchall()
+
+def update_content(conn, source_url, content):
+    """更新文章正文"""
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE learn_steps SET content = %s, updated_at = NOW()
+        WHERE source_url = %s
+    """, (content, source_url))
     conn.commit()
     return cursor.rowcount
 
@@ -171,9 +189,28 @@ def fetch_wiki_data(wiki_token):
 
     return items
 
+def fetch_article_content(wiki_token):
+    """抓取单篇文章的正文内容"""
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        ctx = browser.new_context()
+        page = ctx.new_page()
+
+        try:
+            page.goto(f"{BASE_URL}/wiki/{wiki_token}", wait_until="networkidle", timeout=30000)
+            page.wait_for_timeout(3000)
+
+            # 获取页面正文内容
+            body_text = page.inner_text("body")
+            return body_text
+        except Exception as e:
+            print(f"    抓取失败: {e}")
+            return ""
+        finally:
+            browser.close()
+
 def extract_description(item):
     """从文章元数据提取描述"""
-    # 尝试从 detail_info 获取创建时间作为描述的一部分
     detail = item.get("detail_info", {})
     create_time = detail.get("create_time")
     if create_time:
@@ -189,7 +226,7 @@ def extract_description(item):
 # 主同步逻辑
 # ──────────────────────────────────────────────────────
 
-def sync_once(wiki_token):
+def sync_once(wiki_token, fetch_content=False):
     """执行一次同步"""
     items = fetch_wiki_data(wiki_token)
     if not items:
@@ -209,21 +246,26 @@ def sync_once(wiki_token):
             source_url = item.get("url") or f"{BASE_URL}/wiki/{wiki_token_item}"
             description = extract_description(item)
 
-            # 暂时不获取文章正文，只存元数据
-            # 正文需要单独请求每个文档，耗时较长
-            content = ""
-
             sort_order = len(items) - i  # 倒序，最新的 sort_order 最大
+
+            # 抓取正文内容
+            content = ""
+            if fetch_content:
+                print(f"  [{i+1}/{len(items)}] 抓取正文: {title[:40]}")
+                content = fetch_article_content(wiki_token_item)
+                if content:
+                    print(f"    成功 ({len(content)} 字符)")
+                time.sleep(1)  # 避免请求过快
 
             try:
                 status = upsert_article(conn, title, description, content, source_url, sort_order)
                 existing_urls.append(source_url)
                 stats[status] += 1
-                # 只打印新增和更新的
-                if status == 'inserted':
-                    print(f"  [新增] {title[:50]}")
-                elif status == 'updated':
-                    print(f"  [更新] {title[:50]}")
+                if not fetch_content:
+                    if status == 'inserted':
+                        print(f"  [新增] {title[:50]}")
+                    elif status == 'updated':
+                        print(f"  [更新] {title[:50]}")
             except Exception as e:
                 stats['failed'] += 1
                 print(f"  [失败] {title[:30]} - {e}")
@@ -241,6 +283,33 @@ def sync_once(wiki_token):
         print(f"同步失败: {e}")
         conn.close()
         return 0
+
+def sync_content_only():
+    """只抓取缺失的正文内容"""
+    conn = get_db_connection()
+    articles = get_articles_without_content(conn)
+
+    if not articles:
+        print("所有文章都已有正文内容")
+        conn.close()
+        return
+
+    print(f"发现 {len(articles)} 篇文章缺少正文，开始抓取...")
+
+    success = 0
+    for i, article in enumerate(articles):
+        title = article['title'][:40] if article.get('title') else f"文章{article['id']}"
+        print(f"  [{i+1}/{len(articles)}] {title}")
+
+        content = fetch_article_content(article['source_url'].split('/')[-1])
+        if content:
+            update_content(conn, article['source_url'], content)
+            success += 1
+            print(f"    成功 ({len(content)} 字符)")
+        time.sleep(1)
+
+    conn.close()
+    print(f"[{datetime.now().isoformat()}] 正文抓取完成: 成功 {success}/{len(articles)}")
 
 def schedule_sync(wiki_token, interval_hours=6):
     """定时同步"""
@@ -273,6 +342,8 @@ def main():
     parser.add_argument("--schedule", action="store_true", help="启动定时同步模式")
     parser.add_argument("--interval", type=int, default=6, help="定时同步间隔（小时）")
     parser.add_argument("--token", default=None, help="飞书 wiki token")
+    parser.add_argument("--content", action="store_true", help="强制重新抓取所有文章正文")
+    parser.add_argument("--fill-content", action="store_true", help="只抓取缺失的正文内容")
     args = parser.parse_args()
 
     # 加载环境变量
@@ -280,10 +351,12 @@ def main():
 
     wiki_token = args.token or os.environ.get("FEISHU_WIKI_TOKEN") or DEFAULT_WIKI_TOKEN
 
-    if args.schedule:
+    if args.fill_content:
+        sync_content_only()
+    elif args.schedule:
         schedule_sync(wiki_token, args.interval)
     else:
-        sync_once(wiki_token)
+        sync_once(wiki_token, fetch_content=args.content)
 
 if __name__ == "__main__":
     main()

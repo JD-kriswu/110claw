@@ -35,6 +35,8 @@ type News struct {
 	ViewCount   int        `gorm:"default:0" json:"view_count"`
 	Status      int8       `gorm:"default:1" json:"status"` // 1=published, 0=draft
 	PublishedAt *time.Time `json:"published_at"`
+	SourceURL   string     `gorm:"size:500;uniqueIndex" json:"source_url"` // Original URL, used for deduplication
+	SourceName   string     `gorm:"size:50" json:"source_name"`              // Source: hackernews/github/reddit
 }
 
 // LearnStep represents a learning article synced from Feishu wiki.

@@ -30,7 +30,7 @@ func ListNews(c *gin.Context) {
 	query.Count(&total)
 
 	var news []model.News
-	query.Select("id, created_at, updated_at, title, summary, cover_image, author_id, tags, view_count, status, published_at").
+	query.Select("id, created_at, updated_at, title, summary, cover_image, author_id, tags, view_count, status, published_at, source_url, source_name").
 		Order("published_at DESC").
 		Offset((page - 1) * pageSize).
 		Limit(pageSize).
