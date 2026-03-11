@@ -1,0 +1,23 @@
+# compiled binaries
+bin/
+
+# runtime files (PID, logs)
+run/
+
+# frontend build output
+frontend/dist/
+
+# frontend dependencies
+frontend/node_modules/
+
+# environment variables (contains credentials)
+backend/.env
+frontend/.env
+.env
+
+# Go build cache
+backend/vendor/
+
+# OS
+.DS_Store
+Thumbs.db
